@@ -1,0 +1,51 @@
+# Builds every workspace package, packs them into versionless tarballs and
+# attaches them to the rolling "tars" release, so consumers can depend on
+# https://github.com/MSOB7YY/docmd/releases/download/tars/docmd-<pkg>.tgz
+name: Pack tarballs
+
+on:
+  push:
+    branches: [ main, custom-css ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pack-tars
+  cancel-in-progress: true
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm -r run build
+
+      - name: Pack tarballs
+        run: node tools/sim.mjs --source _playground --regen-tars --skip-monorepo-build
+
+      - name: Upload to rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view tars >/dev/null 2>&1 || \
+            gh release create tars --title "docmd tarballs" --notes "rolling build" --latest=false
+          gh release upload tars _playground/local-tars/*.tgz --clobber
+          gh release edit tars --notes "Built from ${GITHUB_SHA} on $(date -u +%Y-%m-%dT%H:%M:%SZ)"
